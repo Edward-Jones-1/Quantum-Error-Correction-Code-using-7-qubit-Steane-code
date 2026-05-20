@@ -1,0 +1,2 @@
+# Quantum-Error-Correction-Code-using-7-qubit-Steane-code
+This project details a demonstration of an error correcting code using the 7-qubit Steane code and the stabilizer simulation method. Stabilizer generator measurements were taken before and after a deliberate, artificial error. The two syndromes were compared in order to diagnose the error and the appropriate Pauli gates applied for correction. 
