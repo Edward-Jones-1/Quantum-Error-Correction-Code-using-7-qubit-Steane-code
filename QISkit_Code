@@ -1,0 +1,296 @@
+!pip install qiskit
+!pip install qiskit-aer matplotlib pylatexenc
+import numpy as np
+from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
+from qiskit_aer import AerSimulator
+
+
+q = QuantumRegister(7, 'q') #Initialise 7 physical qubits.
+stab_pre = QuantumRegister(6, 'stab_pre')  # The 6 qubits forming the stabilizer generators.
+stab_post = QuantumRegister(6, 'stab_post')
+syn_pre_bits = [ClassicalRegister(1, f'pre_{i}') for i in range(6)] # Classical bits to store syndrome
+syn_post_bits = [ClassicalRegister(1, f'post_{i}') for i in range(6)] # Classical bits to store syndrome
+e_ancilla = QuantumRegister(6, 'e_ancilla') # Ancilla qubits for determining error.
+error = ClassicalRegister(6, 'error')
+stab_check = QuantumRegister(6, 'stab_check') # Confirmation measurements.
+syn_check = ClassicalRegister(6, 'syn_check')
+
+qc = QuantumCircuit(q, stab_pre, stab_post, e_ancilla, *syn_pre_bits, *syn_post_bits, error, stab_check, syn_check)
+
+
+
+
+### initialise data qubit ###
+qc.h(q[0])
+
+
+### Arbtitrary information qubit encoded into 7 physical qubits - 1 logical qubit ###
+qc.cx(q[0], q[5])
+qc.cx(q[0], q[6])
+qc.h(q[2])
+qc.cx(q[2], q[0])
+qc.cx(q[2], q[4])
+qc.cx(q[2], q[6])
+qc.h(q[1])
+qc.cx(q[1], q[2])
+qc.cx(q[1], q[5])
+qc.h(q[3])
+qc.cx(q[3], q[4])
+qc.cx(q[3], q[5])
+qc.cx(q[3], q[6])
+
+qc.barrier(q)
+
+
+### Apply Z stabilizers ###
+qc.h(stab_pre[0])
+qc.cz(stab_pre[0], q[0])
+qc.cz(stab_pre[0], q[2])
+qc.cz(stab_pre[0], q[4])
+qc.cz(stab_pre[0], q[6])
+qc.h(stab_pre[0])
+qc.barrier(q)
+qc.h(stab_pre[1])
+qc.cz(stab_pre[1], q[1])
+qc.cz(stab_pre[1], q[2])
+qc.cz(stab_pre[1], q[5])
+qc.cz(stab_pre[1], q[6])
+qc.h(stab_pre[1])
+## Error detectable ##
+qc.barrier(q)
+qc.h(stab_pre[2])
+qc.cz(stab_pre[2], q[3])
+qc.cz(stab_pre[2], q[4])
+qc.cz(stab_pre[2], q[5])
+qc.cz(stab_pre[2], q[6])
+qc.h(stab_pre[2])
+#Apply X stabilizers
+qc.h(stab_pre[3])
+qc.cx(stab_pre[3], q[0])
+qc.cx(stab_pre[3], q[2])
+qc.cx(stab_pre[3], q[4])
+qc.cx(stab_pre[3], q[6])
+qc.h(stab_pre[3])
+qc.barrier(q)
+qc.h(stab_pre[4])
+qc.cx(stab_pre[4], q[1])
+qc.cx(stab_pre[4], q[2])
+qc.cx(stab_pre[4], q[5])
+qc.cx(stab_pre[4], q[6])
+qc.h(stab_pre[4])
+qc.h(stab_pre[5])
+qc.cx(stab_pre[5], q[3])
+qc.cx(stab_pre[5], q[4])
+qc.cx(stab_pre[5], q[5])
+qc.cx(stab_pre[5], q[6])
+qc.h(stab_pre[5])
+
+for i in range(6):
+    qc.measure(stab_pre[i], syn_pre_bits[i][0])
+    qc.reset(stab_pre[i]) #Good practice to reuse qubits but does not benefit the circuit in this case
+
+### apply error ###
+def apply_random_error(qc, q):
+    """Applies a random single-qubit error (I, X, Y, or Z) to one random qubit."""
+    error_gates = ['i', 'x', 'y', 'z']
+    random_gate = np.random.choice(error_gates)
+    random_qubit = np.random.randint(0, 7)
+
+    if random_gate == 'y':
+        qc.y(q[random_qubit])
+
+    if random_gate == 'z':
+        qc.z(q[random_qubit])
+
+    elif random_gate == 'x':
+       qc.x(q[random_qubit])
+    #Identity has no effect
+apply_random_error(qc, q)
+
+### Apply Z stabilizers again to detect bit-flip error ###
+qc.h(stab_post[0])
+qc.cz(stab_post[0], q[0])
+qc.cz(stab_post[0], q[2])
+qc.cz(stab_post[0], q[4])
+qc.cz(stab_post[0], q[6])
+qc.h(stab_post[0])
+qc.barrier(q)
+qc.h(stab_post[1])
+qc.cz(stab_post[1], q[1])
+qc.cz(stab_post[1], q[2])
+qc.cz(stab_post[1], q[5])
+qc.cz(stab_post[1], q[6])
+qc.h(stab_post[1])
+qc.barrier(q)
+qc.h(stab_post[2])
+qc.cz(stab_post[2], q[3])
+qc.cz(stab_post[2], q[4])
+qc.cz(stab_post[2], q[5])
+qc.cz(stab_post[2], q[6])
+qc.h(stab_post[2])
+#Apply X stabilizers again to detect phase-flip error.
+qc.h(stab_post[3])
+qc.cx(stab_post[3], q[0])
+qc.cx(stab_post[3], q[2])
+qc.cx(stab_post[3], q[4])
+qc.cx(stab_post[3], q[6])
+qc.h(stab_post[3])
+qc.barrier(q)
+qc.h(stab_post[4])
+qc.cx(stab_post[4], q[1])
+qc.cx(stab_post[4], q[2])
+qc.cx(stab_post[4], q[5])
+qc.cx(stab_post[4], q[6])
+qc.h(stab_post[4])
+qc.h(stab_post[5])
+qc.cx(stab_post[5], q[3])
+qc.cx(stab_post[5], q[4])
+qc.cx(stab_post[5], q[5])
+qc.cx(stab_post[5], q[6])
+qc.h(stab_post[5])
+
+for i in range(6):
+    qc.measure(stab_post[i], syn_post_bits[i][0])
+    qc.reset(stab_post[i])
+
+qc.barrier(q)
+
+### Effective XOR onto error ancilla ###
+
+for i in range(6):
+    with qc.if_test((syn_pre_bits[i], 1)):
+        qc.x(e_ancilla[i])
+    with qc.if_test((syn_post_bits[i], 1)):
+        qc.x(e_ancilla[i])
+
+qc.measure(e_ancilla, error)
+qc.barrier(q)
+
+### Apply gates (as corrections) based on syndrome ###
+
+trivial = '000000'
+value = int(trivial, 2)
+with qc.if_test((error, value)):
+  pass
+
+X = np.arange(1, 8)
+Z = np.arange(1, 8)
+
+### Apply X corrections ###
+for i in range(7):
+    with qc.if_test((error, int(X[i]))):
+        qc.x(q[i])
+
+### Apply Z corrections ###
+for i in range(7):
+    syndrome_z = Z[i] * 8
+    with qc.if_test((error, int(syndrome_z))):
+        qc.z(q[i])
+
+### Apply Y corrections ###
+for i in range(7):
+    syndrome_y = 9 * (i + 1)
+    with qc.if_test((error, int(syndrome_y))):
+        qc.y(q[i])
+
+### Apply Z stabilizers again for confirmation ###
+qc.h(stab_check[0])
+qc.cz(stab_check[0], q[0])
+qc.cz(stab_check[0], q[2])
+qc.cz(stab_check[0], q[4])
+qc.cz(stab_check[0], q[6])
+qc.h(stab_check[0])
+qc.measure(stab_check[0],syn_check[0])
+qc.barrier(q)
+qc.h(stab_check[1])
+qc.cz(stab_check[1], q[1])
+qc.cz(stab_check[1], q[2])
+qc.cz(stab_check[1], q[5])
+qc.cz(stab_check[1], q[6])
+qc.h(stab_check[1])
+qc.barrier(q)
+qc.measure(stab_check[1],syn_check[1])
+qc.h(stab_check[2])
+qc.cz(stab_check[2], q[3])
+qc.cz(stab_check[2], q[4])
+qc.cz(stab_check[2], q[5])
+qc.cz(stab_check[2], q[6])
+qc.h(stab_check[2])
+qc.measure(stab_check[2],syn_check[2])
+#Apply X stabilizers again for confirmation.
+qc.h(stab_check[3])
+qc.cx(stab_check[3], q[0])
+qc.cx(stab_check[3], q[2])
+qc.cx(stab_check[3], q[4])
+qc.cx(stab_check[3], q[6])
+qc.h(stab_check[3])
+qc.measure(stab_check[3],syn_check[3])
+qc.barrier(q)
+qc.h(stab_check[4])
+qc.cx(stab_check[4], q[1])
+qc.cx(stab_check[4], q[2])
+qc.cx(stab_check[4], q[5])
+qc.cx(stab_check[4], q[6])
+qc.h(stab_check[4])
+qc.measure(stab_check[4],syn_check[4])
+qc.barrier(q)
+qc.h(stab_check[5])
+qc.cx(stab_check[5], q[3])
+qc.cx(stab_check[5], q[4])
+qc.cx(stab_check[5], q[5])
+qc.cx(stab_check[5], q[6])
+qc.h(stab_check[5])
+qc.measure(stab_check[5],syn_check[5])
+
+
+### Simulation ###
+
+simulator = AerSimulator(method = "stabilizer")
+compiled_circuit = transpile(qc, simulator)
+job = simulator.run(compiled_circuit, shots=1000, memory = True)
+result = job.result()
+mem = result.get_memory()
+counts = result.get_counts(qc)
+
+for bitstring, count in counts.items():
+    parts = bitstring.split()
+    if len(parts) == 14: # 12 single-bit cregisters + 2 6 bit cregisters.
+        syn_check_str = parts[0]
+        error_str = parts[1]
+        syn_post_bits_str = "".join(parts[2:8]) # syn_post bits
+        syn_pre_bits_str = "".join(parts[8:14]) # syn_pre bits
+        print(f"syn_pre: {syn_pre_bits_str} | syn_post: {syn_post_bits_str} | error: {error_str} | syn_check: {syn_check_str} (Count: {count})")
+
+errors = {
+    '000000': "No error detected",
+
+    '000001': 'bit-flip error on the first qubit (q[0])',
+    '000010': 'bit-flip error on the second qubit (q[1])',
+    '000011': 'bit-flip error on the third qubit (q[2])',
+    '000100': 'bit-flip error on the fourth qubit (q[3])',
+    '000101': 'bit-flip error on the fifth qubit (q[4])',
+    '000110': 'bit-flip error on the sixth qubit (q[5])',
+    '000111': 'bit-flip error on the seventh qubit (q[6])',
+
+    '001000': 'phase-flip error on the first qubit (q[0])',
+    '010000': 'phase-flip error on the second qubit (q[1])',
+    '011000': 'phase-flip error on the third qubit (q[2])',
+    '100000': 'phase-flip error on the fourth qubit (q[3])',
+    '101000': 'phase-flip error on the fifth qubit (q[4])',
+    '110000': 'phase-flip error on the sixth qubit (q[5])',
+    '111000': 'phase-flip error on the seventh qubit (q[6])',
+
+    '001001': 'phase-flip and bit-flip error on first qubit (q[0])',
+    '010010': 'phase-flip and bit-flip error on second qubit (q[1])',
+    '011011': 'phase-flip and bit-flip error on third qubit (q[2])',
+    '100100': 'phase-flip and bit-flip error on fourth qubit (q[3])',
+    '101101': 'phase-flip and bit-flip error on fifth qubit (q[4])',
+    '110110': 'phase-flip and bit-flip error on sixth qubit (q[5])',
+    '111111': 'phase-flip and bit-flip error on seventh qubit (q[6])',
+}
+
+print(errors.get(error_str, "Unknown error code"))
+
+
+
+# qc.draw("mpl")
